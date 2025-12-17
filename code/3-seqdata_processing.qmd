@@ -1,0 +1,99 @@
+---
+title: "seqdata_processing"
+format: html
+---
+
+This qmd contains the code for processing the sequencing data to a point where it can be analyzed, namely up to alignment to rRNA sequences. As with all the code for this project, you might need to modify thread/RAM usage in some of the commands to match the resources you have.
+
+# Adapter removal and demultiplexing
+
+This will demultiplex the data and remove the adapters at the same time. It leaves the UMIs on for deduplication in the next step.
+```{bash}
+for FILE in ../seqdata/1-original/*.fastq.gz; do
+  # extract the KS### numbers, 137/138 are DNAzyme- and 139/140 are DNAzyme+
+  KS=`echo $FILE | grep -oP "KS[0-9]{3}"`
+  
+  # remove the adapters and demux all at once
+  echo "cutadapt --minimum-length 19 -j 16 \
+    -a file:barcodes.fa \
+    -o ../seqdata/2-demux/{name}_$KS.fq.gz \
+    $FILE \
+    &>../reports/demux_reports/$KS\.txt"
+done | parallel
+```
+
+# Deduplication
+
+This step in particular takes a lot of RAM.
+```{bash}
+for FILE in ../seqdata/2-demux/*fq.gz ; do
+  # files base name
+  FNAME=$(basename "${FILE}" | cut -d '.' -f 1)
+  
+  # output location
+  OUT=../seqdata/3-dedup/"${FNAME}".fq.gz
+  
+  # report location
+  REP=../reports/dedup_reports/"${FNAME}".txt
+
+  echo "dedupe.sh ac=f threads=8 -Xmx32G in=${FILE} out=${OUT} outd=/dev/null 2>${REP}"
+done | parallel
+```
+
+# Further cleaning
+
+Now, we remove the UMIs and filter the reads for quality and length
+```{bash}
+for FILE in ../seqdata/3-dedup/*.fq.gz; do
+  FNAME=$(basename "${FILE}" | cut -d '.' -f 1)
+  
+  # output
+  OUT=../seqdata/4-filtered/"${FNAME}".fq.gz
+  
+  JSON=../reports/fastp/"${FNAME}".json
+  
+  echo "fastp -i $FILE -o $OUT -w 4 -A -f 4 -t 5 -l 10  -j $JSON -R $FNAME"
+done | parallel
+```
+
+# Alignment to rRNA
+
+ecoli
+```{bash}
+for FILE in ../seqdata/4-filtered/*fq.gz; do
+  FNAME=$(basename "${FILE}" | cut -d '.' -f 1)
+  
+  BAM=../alignment/output/"${FNAME}".bam
+  
+  HLOG=../reports/hisat2/${FNAME}.txt
+  
+  IDX=../alignment/indices/ecoli
+
+  echo "hisat2 -x $IDX -p 16 --no-unal --new-summary -U $FILE --rna-strandness F --no-spliced-alignment 2>$HLOG | samtools sort -o ${BAM}"
+done | parallel
+```
+
+yeast
+```{bash}
+for FILE in ../seqdata/4-filtered/*.fq.gz; do
+  FNAME=$(basename "${FILE}" | cut -d '.' -f 1)
+  
+  BAM=../alignment/output/"${FNAME}".bam
+  
+  HLOG=../reports/hisat2/${FNAME}.txt
+  
+  IDX=../alignment/indices/yeast
+
+  echo "hisat2 -x $IDX -p 16 --no-unal --new-summary -U $FILE --rna-strandness F --no-spliced-alignment 2>$HLOG | samtools sort -o ${BAM}"
+done | parallel
+```
+
+# Compute depth
+
+```{bash}
+for FILE in ../alignment/output/*.bam; do
+  RES="${FILE/.bam/.tsv}"
+  
+  echo "samtools depth -a $FILE > ${RES}"
+done | parallel
+```
