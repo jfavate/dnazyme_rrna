@@ -1,0 +1,92 @@
+---
+title: "1-get_refs"
+format: html
+---
+
+```{r}
+library(tidyverse)
+library(rtracklayer)
+library(Biostrings)
+library(conflicted)
+```
+
+# Get references
+
+Acquire the standard E. coli K12 reference
+```{bash}
+datasets download genome accession GCF_000005845.2 --include gff3,rna,cds,protein,genome,seq-report --filename ../references/ecoli.zip
+```
+
+Unzip it.
+```{bash}
+unzip -d ../references/ ../references/ecoli.zip && rm ../references/ecoli.zip
+```
+
+# Get the rRNA segments
+
+Load the files
+```{r}
+gff <- readGFFAsGRanges("../references/ncbi_dataset/data/GCF_000005845.2/genomic.gff")
+
+fa <- readDNAStringSet("../references/ncbi_dataset/data/GCF_000005845.2/GCF_000005845.2_ASM584v2_genomic.fna")
+
+# name needs to match the gff
+names(fa) <- str_extract(names(fa), "^[^\\s]*")
+```
+
+There are only three kinds of rRNA in the gff but there are multiple copies of each.
+```{r}
+rrna.gff <- gff[gff$type == "rRNA"]
+
+table(rrna.gff$product)
+```
+
+The sequences are not all the same but I'm still just going to pick the most common one and let there be variants.
+```{r}
+# rrna seqs
+rrna.seqs <- fa[rrna.gff]
+
+# rev comp the - strand ones
+rrna.seqs[strand(rrna.gff) == "-"] <- reverseComplement(rrna.seqs[strand(rrna.gff) == "-"])
+
+# rename them so I know which one is which
+names(rrna.seqs) <- paste(
+  rrna.gff$ID,
+  rrna.gff$product,
+  sep = "_"
+) %>% 
+  str_replace_all(" ", "_")
+
+# this should result in one sequence per rrna if they were all the same but they're not
+top.seqs <- lapply(unique(width(rrna.seqs)), function(x){
+  rrna.seqs[width(rrna.seqs) == x] %>% 
+    as.character() %>% 
+    table() %>% # count the seqs
+    enframe() %>% # make a df of it
+    arrange(desc(value)) %>% # most common ones at the top
+    dplyr::slice(1) %>% # pick the first row
+    pull(name) # get the seq
+})
+
+rrna.seqs.reduced <- rrna.seqs[as.character(rrna.seqs) %in% top.seqs] %>% 
+  unique()
+```
+
+These aren't unique yet, there is some difference in the 23S seqs, I'm going to pick the bottom one because it doesn't have missing bases. There are are other single base differences in this and the other sequence but trying to align the reads to each of these will probably just dilute my signal. Once I see coverage in an area I can just look to see what the sequence is at that spot.
+```{}
+rna-b2589_23S_ribosomal_RNA      GGGTTAGCGC--AAGCGAAGCTCTTGATCGAAGCCCCGGTAAACGGCGGCCGTAACTATA	1918
+rna-b3854_23S_ribosomal_RNA      GGGTTAGCCGCAAGGCGAAGCTCTTGATCGAAGCCCCGGTAAACGGCGGCCGTAACTATA	1919
+                                 ********    * **********************************************
+```
+
+Save them
+```{r}
+(rrna.seqs.unique <- rrna.seqs.reduced[names(rrna.seqs.reduced) != "rna-b3854_23S_ribosomal_RNA"])
+
+writeXStringSet(rrna.seqs.unique, "../references/ecoli_rrnas.fa")
+```
+
+Index them for alignment
+```{bash}
+hisat2-build ../references/ecoli_rrnas.fa ../alignment/indices/ecoli
+```
