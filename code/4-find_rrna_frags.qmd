@@ -147,7 +147,7 @@ ggsave(filename = "../plots/16s_seq1.png", plot = last_plot(), width = 22, heigh
 ```{r fig.width = 9, fig.height = 4}
 make_graph("rna-b3968_16S_ribosomal_RNA", 1035, 1085, 1046, 1074)
 
-ggsave(filename = "../plots/16s_seq1.png", plot = last_plot(), width = 9, height = 4)
+ggsave(filename = "../plots/16s_seq2.png", plot = last_plot(), width = 9, height = 4)
 ```
 
 Presumably then, just counting the reads in the KS137 and 138 samples should show that and/or it's containments being the major species
