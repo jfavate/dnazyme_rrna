@@ -22,7 +22,6 @@ pt <- theme_bw() +
   )
 ```
 
-
 Load the depths
 ```{r}
 dlocs <- dir("../alignment/output", pattern = "tsv", full.names = TRUE)
@@ -57,70 +56,98 @@ ddf %>%
 ggsave(plot = last_plot(), filename = "../plots/depth_on_rrna.png", width = 5.5, height = 6.5)
 ```
 
-zoom
-```{r fig.width = 6.5, fig.height = 3}
-p.depths <- ddf %>% 
-  dplyr::filter(X1 == "rna-b2589_23S_ribosomal_RNA" & X2 > 1504 & X2 < 1537) %>% 
-  ggplot(., aes(X2, X3, color = repl))+
-  geom_vline(aes(xintercept = 1510), linetype = 5, color = "grey30")+
-  geom_vline(aes(xintercept = 1531), linetype = 5, color = "grey30")+
-  geom_line()+
-  facet_wrap(~X1, scales = "free", ncol = 1)+
-  scale_x_continuous(breaks = seq(0,3000,1))+
-  scale_y_continuous(labels = scales::label_number(scale = 1/1e6, suffix = "M"))+
-  scale_color_brewer(name = "Replicate", palette = "Set1")+
-  theme_bw()+
-  theme(panel.grid = element_blank(),
-        axis.text.x = element_blank(),
-        plot.margin = unit(c(1, 1, 1, 1), "pt"),
-        legend.position = "inside",
-        legend.position.inside = c(.075,.78),
-        legend.background = element_blank(),
-        text = element_text(size = 14),
-        legend.text = element_text(size = 10),
-        legend.title = element_text(size = 12))+
-  labs(x = NULL,
-       y = "Depth")
-
-p.depths
-```
-
-What is that sequence?
+This is the rrna fasta
 ```{r}
 fa <- readDNAStringSet("../references/ecoli_rrnas.fa")
-
-theseq <- fa[names(fa) == "rna-b2589_23S_ribosomal_RNA"] %>% 
-  subseq(., start = 1505, end = 1536) %>% 
-  as.character() %>% 
-  str_split(., "") %>% 
-  unlist() %>% 
-  unname()
-
-theseq.df <- data.frame(
-  l = theseq,
-  x = seq(1505,1536)
-)
-
-p.theseq <- ggplot(theseq.df, aes(x, y = 1, label = l))+
-  geom_text()+
-  labs(x = "Position",
-       y = NULL)+
-  scale_x_continuous(breaks = seq(0,2000,1))+
-  theme_minimal()+
-  theme(panel.grid = element_blank(),
-        axis.text.x = element_text(angle = 90, vjust = 0.5),
-        axis.text.y = element_blank(),
-        axis.ticks.y = element_blank(),
-        plot.margin = unit(c(1, 1, 1, 1), "pt")
-        )
-
-p.theseq
 ```
 
-```{r fig.width = 6.5, fig.height = 4.5}
-(p.depths / p.theseq) + plot_layout(heights = c(.9,.1))
+This function takes an rRNA name, two positions to start the graph at (s and e) and two positions to draw vertical lines at (sl and el) to look at and makes graph that shows the positions and the sequence.
+```{r}
+make_graph <- function(rrna, s, e, sl, el) {
+  # get the depths for a specific spot
+  depths <- ddf %>%
+    dplyr::filter(X1 == rrna & X2 >= s & X2 <= e)
+  
+  # make the line plot
+  p.depths <- depths %>%
+    ggplot(., aes(X2, X3, color = repl)) +
+    geom_vline(aes(xintercept = sl),
+               linetype = 5,
+               color = "grey30") +
+    geom_vline(aes(xintercept = el),
+               linetype = 5,
+               color = "grey30") +
+    geom_line() +
+    facet_wrap(~ X1, scales = "free", ncol = 1) +
+    scale_x_continuous(breaks = seq(0, 3000, 1)) +
+    scale_y_continuous(labels = scales::label_number(scale = 1 / 1e6, suffix = "M")) +
+    scale_color_brewer(name = "Replicate", palette = "Set1") +
+    theme_bw() +
+    theme(
+      panel.grid = element_blank(),
+      axis.text.x = element_blank(),
+      plot.margin = unit(c(1, 1, 1, 1), "pt"),
+      legend.background = element_blank(),
+      text = element_text(size = 14),
+      legend.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      legend.position = "top",
+      legend.direction = "horizontal"
+    ) +
+    labs(x = NULL, y = "Depth")
+  
+  # get the sequence
+  theseq <- fa[names(fa) == rrna] %>%
+    subseq(., start = s, end = e) %>%
+    as.character() %>%
+    str_split(., "") %>%
+    unlist() %>%
+    unname()
+  
+  theseq.df <- data.frame(l = theseq, x = seq(s, e))
+  
+  p.theseq <- ggplot(theseq.df, aes(x, y = 1, label = l)) +
+    geom_text() +
+    labs(x = "Position", y = NULL) +
+    scale_x_continuous(breaks = seq(0, 2000, 1)) +
+    theme_minimal() +
+    theme(
+      panel.grid = element_blank(),
+      axis.text.x = element_text(angle = 90, vjust = 0.5),
+      axis.text.y = element_blank(),
+      axis.ticks.y = element_blank(),
+      plot.margin = unit(c(1, 1, 1, 1), "pt"),
+      text = element_text(size = 14)
+    )
+  
+  final.plot <- (p.depths / p.theseq) + plot_layout(heights = c(.9,.1))
+  
+  return(final.plot)
+}
+```
 
-ggsave(plot = last_plot(), filename = "../plots/23s_overrep.png", width = 6.5, height = 4.5)
+```{r fig.width = 6.5, fig.height = 4}
+(seq1 <- make_graph("rna-b2589_23S_ribosomal_RNA", 1505, 1535, 1510, 1531))
+
+ggsave(filename = "../plots/23s_seq1.png", plot = last_plot(), width = 6.5, height = 4)
+```
+
+```{r fig.width = 14, fig.height = 4}
+(seq2 <- make_graph("rna-b2589_23S_ribosomal_RNA", 1530, 1610, NA, NA))
+
+ggsave(filename = "../plots/23s_seq2.png", plot = last_plot(), width = 14, height = 4)
+```
+
+```{r fig.width = 22, fig.height = 4}
+make_graph("rna-b3968_16S_ribosomal_RNA", 785, 920, NA, NA)
+
+ggsave(filename = "../plots/16s_seq1.png", plot = last_plot(), width = 22, height = 4)
+```
+
+```{r fig.width = 9, fig.height = 4}
+make_graph("rna-b3968_16S_ribosomal_RNA", 1035, 1085, 1046, 1074)
+
+ggsave(filename = "../plots/16s_seq1.png", plot = last_plot(), width = 9, height = 4)
 ```
 
 Presumably then, just counting the reads in the KS137 and 138 samples should show that and/or it's containments being the major species
